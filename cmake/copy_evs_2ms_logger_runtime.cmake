@@ -1,0 +1,17 @@
+if(NOT DEFINED PLUGIN_DIR OR NOT DEFINED TARGET_DIR)
+    message(FATAL_ERROR "PLUGIN_DIR and TARGET_DIR must be set")
+endif()
+
+if(EXISTS "${PLUGIN_DIR}")
+    file(GLOB plugin_dlls "${PLUGIN_DIR}/*.dll")
+    if(plugin_dlls)
+        file(COPY ${plugin_dlls} DESTINATION "${TARGET_DIR}")
+    endif()
+endif()
+
+if(DEFINED SDK_DLL_DIR AND EXISTS "${SDK_DLL_DIR}")
+    file(GLOB sdk_dlls "${SDK_DLL_DIR}/metavision_sdk_*.dll")
+    if(sdk_dlls)
+        file(COPY ${sdk_dlls} DESTINATION "${TARGET_DIR}")
+    endif()
+endif()

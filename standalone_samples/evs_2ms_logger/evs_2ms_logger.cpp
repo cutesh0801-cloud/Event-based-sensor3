@@ -29,6 +29,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <metavision/hal/facilities/i_ll_biases.h>
 #include <metavision/sdk/base/events/event_cd.h>
 #include <metavision/sdk/stream/camera.h>
 
@@ -36,6 +37,7 @@ namespace {
 constexpr Metavision::timestamp kWindowUs = 2000;
 constexpr std::size_t kMaxQueueSize = 200;
 constexpr int kDisplayDelayMs = 1;
+constexpr int kBiasDelta = 1;
 const char kWindowName[] = "EVS 2ms Accumulation";
 std::atomic<bool> *g_running = nullptr;
 
@@ -59,8 +61,82 @@ std::string make_timestamped_output_dir() {
     return oss.str();
 }
 
+void list_biases(Metavision::I_LL_Biases *biases, std::string &primary_bias, std::string &secondary_bias) {
+    if (!biases) {
+        std::cout << "Bias facility not available for this camera." << std::endl;
+        return;
+    }
+
+    auto all_biases = biases->get_all_biases();
+    if (all_biases.empty()) {
+        std::cout << "No biases reported by the camera." << std::endl;
+        return;
+    }
+
+    std::cout << "Available biases:" << std::endl;
+    std::size_t index = 0;
+    for (const auto &entry : all_biases) {
+        const auto &name = entry.first;
+        int value = entry.second;
+        std::cout << "  - " << name << " = " << value << std::endl;
+        if (primary_bias.empty() && index == 0) {
+            primary_bias = name;
+        } else if (secondary_bias.empty() && index == 1) {
+            secondary_bias = name;
+        }
+        ++index;
+    }
+
+    if (primary_bias.empty()) {
+        std::cout << "No bias available to bind to controls." << std::endl;
+        return;
+    }
+
+    std::cout << "Bias controls: [1/+], [2/-] -> " << primary_bias;
+    if (!secondary_bias.empty()) {
+        std::cout << " | [3/+], [4/-] -> " << secondary_bias;
+    }
+    std::cout << " (delta=" << kBiasDelta << ")" << std::endl;
+}
+
+void adjust_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, int delta) {
+    if (!biases) {
+        std::cout << "Bias facility not available for this camera." << std::endl;
+        return;
+    }
+    if (bias_name.empty()) {
+        std::cout << "No bias assigned to this command. Press 'b' to list biases first." << std::endl;
+        return;
+    }
+
+    auto all_biases = biases->get_all_biases();
+    auto it = all_biases.find(bias_name);
+    if (it == all_biases.end()) {
+        std::cout << "Bias \"" << bias_name << "\" is not available on this camera." << std::endl;
+        return;
+    }
+
+    int current_value = it->second;
+    int new_value = current_value + delta;
+
+    Metavision::LL_Bias_Info info;
+    if (biases->get_bias_info(bias_name, info) && !info.is_modifiable()) {
+        std::cout << "Bias \"" << bias_name << "\" is read-only and cannot be modified." << std::endl;
+        return;
+    }
+
+    try {
+        biases->set(bias_name, new_value);
+        int updated_value = biases->get(bias_name);
+        std::cout << "Bias \"" << bias_name << "\" updated: " << current_value << " -> " << updated_value << std::endl;
+    } catch (const std::exception &e) {
+        std::cout << "Failed to update bias \"" << bias_name << "\": " << e.what() << std::endl;
+    }
+}
+
 void handle_command(char cmd,
                     std::unique_ptr<Metavision::Camera> &camera,
+                    Metavision::I_LL_Biases *&biases,
                     std::atomic<bool> &camera_on,
                     std::atomic<bool> &recording_enabled,
                     std::atomic<bool> &running,
@@ -70,6 +146,8 @@ void handle_command(char cmd,
                     std::string &output_dir,
                     std::atomic<int> &camera_width,
                     std::atomic<int> &camera_height,
+                    std::string &bias_primary,
+                    std::string &bias_secondary,
                     ChunkQueue &chunk_queue) {
     switch (cmd) {
     case 'o':
@@ -88,6 +166,12 @@ void handle_command(char cmd,
         camera_height.store(camera->geometry().get_height());
         camera_on.store(true);
         reset_requested.store(true);
+        biases = camera->get_device().get_facility<Metavision::I_LL_Biases>();
+        bias_primary.clear();
+        bias_secondary.clear();
+        if (!biases) {
+            std::cout << "Bias facility not available for this camera." << std::endl;
+        }
         camera->cd().add_callback([&chunk_queue, &camera_on, &running](const Metavision::EventCD *begin,
                                                                        const Metavision::EventCD *end) {
             if (!camera_on.load() || !running.load()) {
@@ -123,6 +207,9 @@ void handle_command(char cmd,
             camera->stop();
             camera.reset();
         }
+        biases = nullptr;
+        bias_primary.clear();
+        bias_secondary.clear();
         {
             std::lock_guard<std::mutex> lock(chunk_queue.mutex);
             chunk_queue.queue.clear();
@@ -171,6 +258,47 @@ void handle_command(char cmd,
         std::cout << "Exit requested." << std::endl;
         return;
     }
+    case 'b':
+    case 'B': {
+        if (!camera_on.load()) {
+            std::cout << "Camera must be ON to list biases." << std::endl;
+            return;
+        }
+        list_biases(biases, bias_primary, bias_secondary);
+        return;
+    }
+    case '1': {
+        if (!camera_on.load()) {
+            std::cout << "Camera must be ON to change biases." << std::endl;
+            return;
+        }
+        adjust_bias(biases, bias_primary, kBiasDelta);
+        return;
+    }
+    case '2': {
+        if (!camera_on.load()) {
+            std::cout << "Camera must be ON to change biases." << std::endl;
+            return;
+        }
+        adjust_bias(biases, bias_primary, -kBiasDelta);
+        return;
+    }
+    case '3': {
+        if (!camera_on.load()) {
+            std::cout << "Camera must be ON to change biases." << std::endl;
+            return;
+        }
+        adjust_bias(biases, bias_secondary, kBiasDelta);
+        return;
+    }
+    case '4': {
+        if (!camera_on.load()) {
+            std::cout << "Camera must be ON to change biases." << std::endl;
+            return;
+        }
+        adjust_bias(biases, bias_secondary, -kBiasDelta);
+        return;
+    }
     default:
         return;
     }
@@ -203,6 +331,9 @@ int main() {
     });
 
     std::unique_ptr<Metavision::Camera> camera;
+    Metavision::I_LL_Biases *biases = nullptr;
+    std::string bias_primary;
+    std::string bias_secondary;
 
     std::thread consumer_thread([&]() {
         std::optional<Metavision::timestamp> window_start;
@@ -313,7 +444,10 @@ int main() {
     });
 
     cv::namedWindow(kWindowName, cv::WINDOW_NORMAL);
-    std::cout << "Commands: o(Camera ON), f(Camera OFF), s(Record START), e(Record END), q(Quit)" << std::endl;
+    std::cout
+        << "Commands: o(Camera ON), f(Camera OFF), s(Record START), e(Record END), b(List Biases), 1/2/3/4(Bias +/-), "
+           "q(Quit)"
+        << std::endl;
 
     while (running.load()) {
         cv::Mat frame_copy;
@@ -329,13 +463,13 @@ int main() {
 
         int key = cv::waitKey(kDisplayDelayMs);
         if (key == 'q' || key == 'Q') {
-            handle_command('q', camera, camera_on, recording_enabled, running, reset_requested,
+            handle_command('q', camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           chunk_queue);
+                           bias_primary, bias_secondary, chunk_queue);
         } else if (key > 0) {
-            handle_command(static_cast<char>(key), camera, camera_on, recording_enabled, running, reset_requested,
-                           recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           chunk_queue);
+            handle_command(static_cast<char>(key), camera, biases, camera_on, recording_enabled, running,
+                           reset_requested, recording_reset_requested, output_mutex, output_dir, camera_width,
+                           camera_height, bias_primary, bias_secondary, chunk_queue);
         }
 
         if (std::cin.rdbuf()->in_avail() > 0) {
@@ -343,9 +477,9 @@ int main() {
             if (cmd == '\n' || cmd == '\r') {
                 continue;
             }
-            handle_command(cmd, camera, camera_on, recording_enabled, running, reset_requested,
+            handle_command(cmd, camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           chunk_queue);
+                           bias_primary, bias_secondary, chunk_queue);
         }
     }
 

@@ -22,4 +22,15 @@ foreach(sample ${standalone_app})
             opencv_highgui
             opencv_imgproc
     )
+
+    if(WIN32 AND sample STREQUAL "evs_2ms_logger")
+        add_custom_command(TARGET ${sample} POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                -DPLUGIN_DIR="${CMAKE_BINARY_DIR}/lib/metavision/hal/plugins"
+                -DSDK_DLL_DIR="${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+                -DTARGET_DIR="$<TARGET_FILE_DIR:${sample}>"
+                -P "${CMAKE_SOURCE_DIR}/cmake/copy_evs_2ms_logger_runtime.cmake"
+            COMMENT "Copying EVS 2ms logger runtime DLLs and plugins to output directory"
+        )
+    endif()
 endforeach(sample)
