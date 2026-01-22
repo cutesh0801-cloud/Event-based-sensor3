@@ -29,6 +29,10 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
+#if defined(_WIN32)
+#include <conio.h>
+#endif
+
 #include <metavision/hal/facilities/i_ll_biases.h>
 #include <metavision/sdk/base/events/event_cd.h>
 #include <metavision/sdk/stream/camera.h>
@@ -46,6 +50,31 @@ struct ChunkQueue {
     std::condition_variable cv;
     std::deque<std::vector<Metavision::EventCD>> queue;
 };
+
+std::optional<char> poll_console_command() {
+#if defined(_WIN32)
+    if (_kbhit()) {
+        int ch = _getch();
+        if (ch == 0 || ch == 224) {
+            if (_kbhit()) {
+                static_cast<void>(_getch());
+            }
+            return std::nullopt;
+        }
+        return static_cast<char>(ch);
+    }
+    return std::nullopt;
+#else
+    if (std::cin.rdbuf()->in_avail() > 0) {
+        char cmd = static_cast<char>(std::cin.get());
+        if (cmd == '\n' || cmd == '\r') {
+            return std::nullopt;
+        }
+        return cmd;
+    }
+    return std::nullopt;
+#endif
+}
 
 std::string make_timestamped_output_dir() {
     auto now = std::chrono::system_clock::now();
@@ -472,12 +501,8 @@ int main() {
                            camera_height, bias_primary, bias_secondary, chunk_queue);
         }
 
-        if (std::cin.rdbuf()->in_avail() > 0) {
-            char cmd = static_cast<char>(std::cin.get());
-            if (cmd == '\n' || cmd == '\r') {
-                continue;
-            }
-            handle_command(cmd, camera, biases, camera_on, recording_enabled, running, reset_requested,
+        if (auto cmd = poll_console_command()) {
+            handle_command(*cmd, camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
                            bias_primary, bias_secondary, chunk_queue);
         }
