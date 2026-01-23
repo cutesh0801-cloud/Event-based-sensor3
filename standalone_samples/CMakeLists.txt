@@ -24,6 +24,7 @@ foreach(sample ${standalone_app})
     )
 
     if(WIN32 AND sample STREQUAL "evs_2ms_logger")
+        add_dependencies(${sample} hal_plugins)
         add_custom_command(TARGET ${sample} POST_BUILD
             COMMAND ${CMAKE_COMMAND}
                 -DPLUGIN_DIR="${CMAKE_BINARY_DIR}/lib/metavision/hal/plugins"

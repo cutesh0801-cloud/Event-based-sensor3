@@ -13,12 +13,14 @@ set "PATH=C:\Project\build\bin\Release;C:\Project\build\lib\Release;%PATH%"
 set "METAVISION_HAL_PLUGIN_PATH=C:\Project\build\lib\metavision\hal\plugins"
 set "MV_HAL_PLUGIN_PATH=%METAVISION_HAL_PLUGIN_PATH%"
 set "HAL_PLUGIN_PATH=%METAVISION_HAL_PLUGIN_PATH%"
+set "MV_HAL_PLUGIN_SEARCH_MODE=PLUGIN_PATH_ONLY"
 
 echo === Runtime DLL resolution (before) ===
 where metavision_psee_hw_layer.dll
 echo METAVISION_HAL_PLUGIN_PATH=%METAVISION_HAL_PLUGIN_PATH%
 echo MV_HAL_PLUGIN_PATH=%MV_HAL_PLUGIN_PATH%
 echo HAL_PLUGIN_PATH=%HAL_PLUGIN_PATH%
+echo MV_HAL_PLUGIN_SEARCH_MODE=%MV_HAL_PLUGIN_SEARCH_MODE%
 echo ======================================
 
 C:\Project\build\bin\Release\evs_2ms_logger.exe
@@ -28,6 +30,7 @@ where metavision_psee_hw_layer.dll
 echo METAVISION_HAL_PLUGIN_PATH=%METAVISION_HAL_PLUGIN_PATH%
 echo MV_HAL_PLUGIN_PATH=%MV_HAL_PLUGIN_PATH%
 echo HAL_PLUGIN_PATH=%HAL_PLUGIN_PATH%
+echo MV_HAL_PLUGIN_SEARCH_MODE=%MV_HAL_PLUGIN_SEARCH_MODE%
 echo =====================================
 
 exit /b %ERRORLEVEL%
