@@ -42,7 +42,6 @@ namespace {
 constexpr Metavision::timestamp kWindowUs = 2000;
 constexpr std::size_t kMaxQueueSize = 200;
 constexpr int kDisplayDelayMs = 1;
-constexpr int kBiasDelta = 1;
 const char kWindowName[] = "EVS 2ms Accumulation";
 std::atomic<bool> *g_running = nullptr;
 
@@ -181,7 +180,7 @@ std::string make_timestamped_output_dir() {
 
 void print_bias_values(Metavision::I_LL_Biases *biases) {
     if (!biases) {
-        std::cout << "Bias facility not available for this camera." << std::endl;
+        std::cout << "이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable)." << std::endl;
         return;
     }
 
@@ -197,9 +196,59 @@ void print_bias_values(Metavision::I_LL_Biases *biases) {
     }
 }
 
-void list_biases(Metavision::I_LL_Biases *biases, std::string &primary_bias, std::string &secondary_bias) {
+bool camera_biases_ready(const std::atomic<bool> &camera_on, Metavision::I_LL_Biases *biases) {
+    if (!camera_on.load()) {
+        std::cout << "Camera must be ON before using bias commands." << std::endl;
+        return false;
+    }
     if (!biases) {
-        std::cout << "Bias facility not available for this camera." << std::endl;
+        std::cout << "이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable)." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+std::string trim_bias_name(const std::string &name) {
+    auto start = name.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return {};
+    }
+    auto end = name.find_last_not_of(" \t\r\n");
+    return name.substr(start, end - start + 1);
+}
+
+std::pair<int, int> bias_range_or_default(Metavision::I_LL_Biases *biases, const std::string &bias_name) {
+    if (!biases) {
+        return {0, 255};
+    }
+    Metavision::LL_Bias_Info info;
+    if (biases->get_bias_info(bias_name, info)) {
+        auto range = info.get_bias_range();
+        if (range.first > range.second) {
+            std::swap(range.first, range.second);
+        }
+        return range;
+    }
+    return {0, 255};
+}
+
+int clamp_bias_value(int value, const std::pair<int, int> &range) {
+    if (value < range.first) {
+        return range.first;
+    }
+    if (value > range.second) {
+        return range.second;
+    }
+    return value;
+}
+
+void list_biases(Metavision::I_LL_Biases *biases,
+                 bool verbose,
+                 std::string &selected_bias,
+                 int step,
+                 const std::vector<int> &step_options) {
+    if (!biases) {
+        std::cout << "이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable)." << std::endl;
         return;
     }
 
@@ -210,29 +259,47 @@ void list_biases(Metavision::I_LL_Biases *biases, std::string &primary_bias, std
     }
 
     std::cout << "Available biases:" << std::endl;
-    std::size_t index = 0;
     for (const auto &entry : all_biases) {
         const auto &name = entry.first;
         int value = entry.second;
-        std::cout << "  - " << name << " = " << value << std::endl;
-        if (primary_bias.empty() && index == 0) {
-            primary_bias = name;
-        } else if (secondary_bias.empty() && index == 1) {
-            secondary_bias = name;
+        std::cout << "  - " << name << " = " << value;
+        if (verbose) {
+            Metavision::LL_Bias_Info info;
+            if (biases->get_bias_info(name, info)) {
+                auto recommended = info.get_bias_range();
+                auto allowed = info.get_bias_allowed_range();
+                auto desc = info.get_description();
+                auto category = info.get_category();
+                std::cout << " | range=" << recommended.first << ".." << recommended.second;
+                if (recommended != allowed) {
+                    std::cout << " (allowed " << allowed.first << ".." << allowed.second << ")";
+                }
+                if (!desc.empty()) {
+                    std::cout << " | desc=" << desc;
+                }
+                if (!category.empty()) {
+                    std::cout << " | category=" << category;
+                }
+                std::cout << " | modifiable=" << (info.is_modifiable() ? "yes" : "no");
+            } else {
+                std::cout << " | info=unavailable";
+            }
         }
-        ++index;
+        std::cout << std::endl;
     }
 
-    if (primary_bias.empty()) {
-        std::cout << "No bias available to bind to controls." << std::endl;
-        return;
+    if (selected_bias.empty()) {
+        selected_bias = all_biases.begin()->first;
     }
 
-    std::cout << "Bias controls: [1/+], [2/-] -> " << primary_bias;
-    if (!secondary_bias.empty()) {
-        std::cout << " | [3/+], [4/-] -> " << secondary_bias;
+    std::cout << "Selected bias: " << selected_bias << " | step=" << step << " (";
+    for (std::size_t i = 0; i < step_options.size(); ++i) {
+        std::cout << step_options[i];
+        if (i + 1 < step_options.size()) {
+            std::cout << "/";
+        }
     }
-    std::cout << " (delta=" << kBiasDelta << ")" << std::endl;
+    std::cout << ")" << std::endl;
 }
 
 bool apply_single_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, int value) {
@@ -251,19 +318,19 @@ bool apply_single_bias(Metavision::I_LL_Biases *biases, const std::string &bias_
         return false;
     }
 
-    auto range = info.get_bias_range();
-    if (value < range.first || value > range.second) {
-        std::cerr << "Bias \"" << bias_name << "\" value " << value << " out of range [" << range.first << ", "
+    auto range = bias_range_or_default(biases, bias_name);
+    int clamped = clamp_bias_value(value, range);
+    if (clamped != value) {
+        std::cout << "Bias \"" << bias_name << "\" clamped to " << clamped << " within range [" << range.first << ", "
                   << range.second << "]." << std::endl;
+    }
+
+    if (!biases->set(bias_name, clamped)) {
+        std::cerr << "Failed to set bias \"" << bias_name << "\" to " << clamped << "." << std::endl;
         return false;
     }
 
-    if (!biases->set(bias_name, value)) {
-        std::cerr << "Failed to set bias \"" << bias_name << "\" to " << value << "." << std::endl;
-        return false;
-    }
-
-    std::cout << "Applied bias \"" << bias_name << "\" = " << value << std::endl;
+    std::cout << "Applied bias \"" << bias_name << "\" = " << clamped << std::endl;
     return true;
 }
 
@@ -293,12 +360,8 @@ void apply_bias_settings(Metavision::I_LL_Biases *biases, const BiasCliOptions &
 }
 
 void adjust_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, int delta) {
-    if (!biases) {
-        std::cout << "Bias facility not available for this camera." << std::endl;
-        return;
-    }
     if (bias_name.empty()) {
-        std::cout << "No bias assigned to this command. Press 'b' to list biases first." << std::endl;
+        std::cout << "No bias selected. Use 'n' to set a bias name." << std::endl;
         return;
     }
 
@@ -310,21 +373,88 @@ void adjust_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, 
     }
 
     int current_value = it->second;
-    int new_value = current_value + delta;
+    int requested_value = current_value + delta;
 
     Metavision::LL_Bias_Info info;
-    if (biases->get_bias_info(bias_name, info) && !info.is_modifiable()) {
+    bool has_info = biases->get_bias_info(bias_name, info);
+    if (has_info && !info.is_modifiable()) {
         std::cout << "Bias \"" << bias_name << "\" is read-only and cannot be modified." << std::endl;
         return;
     }
 
     try {
-        biases->set(bias_name, new_value);
+        auto range = bias_range_or_default(biases, bias_name);
+        int clamped_value = clamp_bias_value(requested_value, range);
+        if (!biases->set(bias_name, clamped_value)) {
+            std::cout << "Failed to update bias \"" << bias_name << "\" to " << clamped_value << "." << std::endl;
+            return;
+        }
         int updated_value = biases->get(bias_name);
-        std::cout << "Bias \"" << bias_name << "\" updated: " << current_value << " -> " << updated_value << std::endl;
+        std::cout << "Bias \"" << bias_name << "\" updated: " << current_value << " -> " << updated_value;
+        if (clamped_value != requested_value) {
+            std::cout << " (requested " << requested_value << ", clamped to " << clamped_value << ")";
+        }
+        std::cout << std::endl;
     } catch (const std::exception &e) {
         std::cout << "Failed to update bias \"" << bias_name << "\": " << e.what() << std::endl;
     }
+}
+
+void print_selected_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, int step) {
+    if (!biases) {
+        std::cout << "이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable)." << std::endl;
+        return;
+    }
+    if (bias_name.empty()) {
+        std::cout << "No bias selected. Use 'n' to set a bias name." << std::endl;
+        return;
+    }
+    auto all_biases = biases->get_all_biases();
+    auto it = all_biases.find(bias_name);
+    if (it == all_biases.end()) {
+        std::cout << "Bias \"" << bias_name << "\" is not available on this camera." << std::endl;
+        return;
+    }
+    std::cout << "Selected bias: " << bias_name << " = " << it->second << " | step=" << step << std::endl;
+}
+
+void prompt_bias_name(Metavision::I_LL_Biases *biases, std::string &selected_bias) {
+    if (!biases) {
+        std::cout << "이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable)." << std::endl;
+        return;
+    }
+    std::cout << "Enter bias name: " << std::flush;
+    std::string input;
+    if (!std::getline(std::cin, input)) {
+        std::cin.clear();
+        return;
+    }
+    input = trim_bias_name(input);
+    if (input.empty()) {
+        std::cout << "Bias name not changed (empty input)." << std::endl;
+        return;
+    }
+    auto all_biases = biases->get_all_biases();
+    if (all_biases.find(input) == all_biases.end()) {
+        std::cout << "Bias \"" << input << "\" not found. Use 'b' to list available biases." << std::endl;
+        return;
+    }
+    selected_bias = input;
+    std::cout << "Selected bias set to \"" << selected_bias << "\"." << std::endl;
+}
+
+void adjust_step(int direction, int &step_index, const std::vector<int> &step_options) {
+    if (step_options.empty()) {
+        return;
+    }
+    int next = step_index + direction;
+    if (next < 0) {
+        next = 0;
+    } else if (next >= static_cast<int>(step_options.size())) {
+        next = static_cast<int>(step_options.size()) - 1;
+    }
+    step_index = next;
+    std::cout << "Bias step set to " << step_options[step_index] << std::endl;
 }
 
 void handle_command(char cmd,
@@ -339,8 +469,9 @@ void handle_command(char cmd,
                     std::string &output_dir,
                     std::atomic<int> &camera_width,
                     std::atomic<int> &camera_height,
-                    std::string &bias_primary,
-                    std::string &bias_secondary,
+                    std::string &selected_bias,
+                    int &bias_step_index,
+                    const std::vector<int> &step_options,
                     ChunkQueue &chunk_queue,
                     BiasCliOptions &bias_options) {
     switch (cmd) {
@@ -361,10 +492,9 @@ void handle_command(char cmd,
         camera_on.store(true);
         reset_requested.store(true);
         biases = camera->get_device().get_facility<Metavision::I_LL_Biases>();
-        bias_primary.clear();
-        bias_secondary.clear();
+        selected_bias.clear();
         if (!biases) {
-            std::cout << "Bias facility not available for this camera." << std::endl;
+            std::cout << "이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable)." << std::endl;
         }
         apply_bias_settings(biases, bias_options);
         if (bias_options.print_bias_on_open) {
@@ -407,8 +537,7 @@ void handle_command(char cmd,
             camera.reset();
         }
         biases = nullptr;
-        bias_primary.clear();
-        bias_secondary.clear();
+        selected_bias.clear();
         {
             std::lock_guard<std::mutex> lock(chunk_queue.mutex);
             chunk_queue.queue.clear();
@@ -459,43 +588,48 @@ void handle_command(char cmd,
     }
     case 'b':
     case 'B': {
-        if (!camera_on.load()) {
-            std::cout << "Camera must be ON to list biases." << std::endl;
+        if (!camera_biases_ready(camera_on, biases)) {
             return;
         }
-        list_biases(biases, bias_primary, bias_secondary);
+        list_biases(biases, cmd == 'B', selected_bias, step_options[bias_step_index], step_options);
         return;
     }
-    case '1': {
-        if (!camera_on.load()) {
-            std::cout << "Camera must be ON to change biases." << std::endl;
+    case 'n':
+    case 'N': {
+        if (!camera_biases_ready(camera_on, biases)) {
             return;
         }
-        adjust_bias(biases, bias_primary, kBiasDelta);
+        prompt_bias_name(biases, selected_bias);
         return;
     }
-    case '2': {
-        if (!camera_on.load()) {
-            std::cout << "Camera must be ON to change biases." << std::endl;
+    case '+': {
+        if (!camera_biases_ready(camera_on, biases)) {
             return;
         }
-        adjust_bias(biases, bias_primary, -kBiasDelta);
+        adjust_bias(biases, selected_bias, step_options[bias_step_index]);
         return;
     }
-    case '3': {
-        if (!camera_on.load()) {
-            std::cout << "Camera must be ON to change biases." << std::endl;
+    case '-': {
+        if (!camera_biases_ready(camera_on, biases)) {
             return;
         }
-        adjust_bias(biases, bias_secondary, kBiasDelta);
+        adjust_bias(biases, selected_bias, -step_options[bias_step_index]);
         return;
     }
-    case '4': {
-        if (!camera_on.load()) {
-            std::cout << "Camera must be ON to change biases." << std::endl;
+    case ']': {
+        adjust_step(1, bias_step_index, step_options);
+        return;
+    }
+    case '[': {
+        adjust_step(-1, bias_step_index, step_options);
+        return;
+    }
+    case 'p':
+    case 'P': {
+        if (!camera_biases_ready(camera_on, biases)) {
             return;
         }
-        adjust_bias(biases, bias_secondary, -kBiasDelta);
+        print_selected_bias(biases, selected_bias, step_options[bias_step_index]);
         return;
     }
     default:
@@ -543,8 +677,9 @@ int main(int argc, char **argv) {
 
     std::unique_ptr<Metavision::Camera> camera;
     Metavision::I_LL_Biases *biases = nullptr;
-    std::string bias_primary;
-    std::string bias_secondary;
+    std::string selected_bias;
+    int bias_step_index = 0;
+    std::vector<int> step_options = {1, 5, 10, 20, 50};
 
     std::thread consumer_thread([&]() {
         std::optional<Metavision::timestamp> window_start;
@@ -656,14 +791,15 @@ int main(int argc, char **argv) {
 
     cv::namedWindow(kWindowName, cv::WINDOW_NORMAL);
     std::cout
-        << "Commands: o(Camera ON), f(Camera OFF), s(Record START), e(Record END), b(List Biases), 1/2/3/4(Bias +/-), "
+        << "Commands: o(Camera ON), f(Camera OFF), s(Record START), e(Record END), "
+           "b(List biases), B(Verbose bias info), n(Select bias), +/-(Bias +/-), [ ](Step), p(Print selection), "
            "q(Quit)"
         << std::endl;
 
     if (bias_options.has_bias_values() || bias_options.print_bias_on_open) {
         handle_command('o', camera, biases, camera_on, recording_enabled, running, reset_requested,
-                       recording_reset_requested, output_mutex, output_dir, camera_width, camera_height, bias_primary,
-                       bias_secondary, chunk_queue, bias_options);
+                       recording_reset_requested, output_mutex, output_dir, camera_width, camera_height, selected_bias,
+                       bias_step_index, step_options, chunk_queue, bias_options);
     }
 
     while (running.load()) {
@@ -682,17 +818,17 @@ int main(int argc, char **argv) {
         if (key == 'q' || key == 'Q') {
             handle_command('q', camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           bias_primary, bias_secondary, chunk_queue, bias_options);
+                           selected_bias, bias_step_index, step_options, chunk_queue, bias_options);
         } else if (key > 0) {
             handle_command(static_cast<char>(key), camera, biases, camera_on, recording_enabled, running,
                            reset_requested, recording_reset_requested, output_mutex, output_dir, camera_width,
-                           camera_height, bias_primary, bias_secondary, chunk_queue, bias_options);
+                           camera_height, selected_bias, bias_step_index, step_options, chunk_queue, bias_options);
         }
 
         if (auto cmd = poll_console_command()) {
             handle_command(*cmd, camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           bias_primary, bias_secondary, chunk_queue, bias_options);
+                           selected_bias, bias_step_index, step_options, chunk_queue, bias_options);
         }
     }
 

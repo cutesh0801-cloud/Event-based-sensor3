@@ -230,7 +230,17 @@ You can also pass CLI options to set biases before the camera starts or to print
 ```
 
 When the app launches, use the interactive commands to start the camera (`o`), stop it (`f`), and control logging. The bias
-CLI options apply immediately when the camera is opened.
+CLI options apply immediately when the camera is opened. Bias control is only available after the camera is ON and requires
+an I_LL_Biases facility; unsupported devices will print:
+`이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable).`
+
+Interactive bias commands:
+- `b`: list available biases and current values (`name=value`).
+- `B`: list biases + info (range/description/category/modifiable, when available).
+- `n`: change the selected bias name (type the name, press Enter).
+- `+`/`-`: increase/decrease the selected bias by the current step.
+- `]`/`[`: increase/decrease the step size (1 -> 5 -> 10 -> 20 -> 50).
+- `p`: print the selected bias name/value/step.
 
   * you also need to update `LD_LIBRARY_PATH` and `HDF5_PLUGIN_PATH`
     (which you may add to your `~/.bashrc` to make it permanent):
