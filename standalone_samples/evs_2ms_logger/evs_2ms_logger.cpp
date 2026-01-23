@@ -24,6 +24,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <opencv2/highgui/highgui.hpp>
@@ -50,6 +51,94 @@ struct ChunkQueue {
     std::condition_variable cv;
     std::deque<std::vector<Metavision::EventCD>> queue;
 };
+
+struct BiasCliOptions {
+    std::optional<int> bias_diff;
+    std::optional<int> bias_diff_on;
+    std::optional<int> bias_diff_off;
+    std::optional<int> bias_fo;
+    std::optional<int> bias_hpf;
+    bool print_bias_on_open = false;
+
+    bool has_bias_values() const {
+        return bias_diff || bias_diff_on || bias_diff_off || bias_fo || bias_hpf;
+    }
+};
+
+void print_usage(const char *app_name) {
+    std::cout << "Usage: " << app_name << " [options]\n"
+              << "Options:\n"
+              << "  --bias-diff <int>       Set bias_diff before starting the camera\n"
+              << "  --bias-diff-on <int>    Set bias_diff_on before starting the camera\n"
+              << "  --bias-diff-off <int>   Set bias_diff_off before starting the camera\n"
+              << "  --bias-fo <int>         Set bias_fo before starting the camera\n"
+              << "  --bias-hpf <int>        Set bias_hpf before starting the camera\n"
+              << "  --print-bias            Print current bias values when the camera is opened\n"
+              << "  --help                  Show this help message\n";
+}
+
+bool parse_int_arg(const std::string &arg, int &value) {
+    try {
+        std::size_t idx = 0;
+        value = std::stoi(arg, &idx, 10);
+        return idx == arg.size();
+    } catch (const std::exception &) {
+        return false;
+    }
+}
+
+bool parse_cli_options(int argc, char **argv, BiasCliOptions &options, bool &show_help) {
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--help") {
+            print_usage(argv[0]);
+            show_help = true;
+            return false;
+        }
+        auto parse_option_with_value = [&](std::optional<int> &target) -> bool {
+            if (i + 1 >= argc) {
+                std::cerr << "Missing value for " << arg << std::endl;
+                return false;
+            }
+            int value = 0;
+            if (!parse_int_arg(argv[i + 1], value)) {
+                std::cerr << "Invalid integer for " << arg << ": " << argv[i + 1] << std::endl;
+                return false;
+            }
+            target = value;
+            ++i;
+            return true;
+        };
+
+        if (arg == "--bias-diff") {
+            if (!parse_option_with_value(options.bias_diff)) {
+                return false;
+            }
+        } else if (arg == "--bias-diff-on") {
+            if (!parse_option_with_value(options.bias_diff_on)) {
+                return false;
+            }
+        } else if (arg == "--bias-diff-off") {
+            if (!parse_option_with_value(options.bias_diff_off)) {
+                return false;
+            }
+        } else if (arg == "--bias-fo") {
+            if (!parse_option_with_value(options.bias_fo)) {
+                return false;
+            }
+        } else if (arg == "--bias-hpf") {
+            if (!parse_option_with_value(options.bias_hpf)) {
+                return false;
+            }
+        } else if (arg == "--print-bias") {
+            options.print_bias_on_open = true;
+        } else {
+            std::cerr << "Unknown option: " << arg << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
 
 std::optional<char> poll_console_command() {
 #if defined(_WIN32)
@@ -90,6 +179,24 @@ std::string make_timestamped_output_dir() {
     return oss.str();
 }
 
+void print_bias_values(Metavision::I_LL_Biases *biases) {
+    if (!biases) {
+        std::cout << "Bias facility not available for this camera." << std::endl;
+        return;
+    }
+
+    auto all_biases = biases->get_all_biases();
+    if (all_biases.empty()) {
+        std::cout << "No biases reported by the camera." << std::endl;
+        return;
+    }
+
+    std::cout << "Current biases:" << std::endl;
+    for (const auto &entry : all_biases) {
+        std::cout << "  - " << entry.first << " = " << entry.second << std::endl;
+    }
+}
+
 void list_biases(Metavision::I_LL_Biases *biases, std::string &primary_bias, std::string &secondary_bias) {
     if (!biases) {
         std::cout << "Bias facility not available for this camera." << std::endl;
@@ -126,6 +233,63 @@ void list_biases(Metavision::I_LL_Biases *biases, std::string &primary_bias, std
         std::cout << " | [3/+], [4/-] -> " << secondary_bias;
     }
     std::cout << " (delta=" << kBiasDelta << ")" << std::endl;
+}
+
+bool apply_single_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, int value) {
+    if (!biases) {
+        std::cerr << "Bias facility not available; cannot set " << bias_name << "." << std::endl;
+        return false;
+    }
+
+    Metavision::LL_Bias_Info info;
+    if (!biases->get_bias_info(bias_name, info)) {
+        std::cerr << "Bias \"" << bias_name << "\" is not available on this camera." << std::endl;
+        return false;
+    }
+    if (!info.is_modifiable()) {
+        std::cerr << "Bias \"" << bias_name << "\" is read-only and cannot be modified." << std::endl;
+        return false;
+    }
+
+    auto range = info.get_bias_range();
+    if (value < range.first || value > range.second) {
+        std::cerr << "Bias \"" << bias_name << "\" value " << value << " out of range [" << range.first << ", "
+                  << range.second << "]." << std::endl;
+        return false;
+    }
+
+    if (!biases->set(bias_name, value)) {
+        std::cerr << "Failed to set bias \"" << bias_name << "\" to " << value << "." << std::endl;
+        return false;
+    }
+
+    std::cout << "Applied bias \"" << bias_name << "\" = " << value << std::endl;
+    return true;
+}
+
+void apply_bias_settings(Metavision::I_LL_Biases *biases, const BiasCliOptions &options) {
+    if (!options.has_bias_values()) {
+        return;
+    }
+
+    const std::pair<std::string, std::optional<int>> bias_entries[] = {
+        {"bias_diff", options.bias_diff},
+        {"bias_diff_on", options.bias_diff_on},
+        {"bias_diff_off", options.bias_diff_off},
+        {"bias_fo", options.bias_fo},
+        {"bias_hpf", options.bias_hpf},
+    };
+
+    for (const auto &entry : bias_entries) {
+        if (!entry.second) {
+            continue;
+        }
+        try {
+            apply_single_bias(biases, entry.first, *entry.second);
+        } catch (const std::exception &e) {
+            std::cerr << "Exception while setting bias \"" << entry.first << "\": " << e.what() << std::endl;
+        }
+    }
 }
 
 void adjust_bias(Metavision::I_LL_Biases *biases, const std::string &bias_name, int delta) {
@@ -177,7 +341,8 @@ void handle_command(char cmd,
                     std::atomic<int> &camera_height,
                     std::string &bias_primary,
                     std::string &bias_secondary,
-                    ChunkQueue &chunk_queue) {
+                    ChunkQueue &chunk_queue,
+                    BiasCliOptions &bias_options) {
     switch (cmd) {
     case 'o':
     case 'O': {
@@ -200,6 +365,11 @@ void handle_command(char cmd,
         bias_secondary.clear();
         if (!biases) {
             std::cout << "Bias facility not available for this camera." << std::endl;
+        }
+        apply_bias_settings(biases, bias_options);
+        if (bias_options.print_bias_on_open) {
+            print_bias_values(biases);
+            bias_options.print_bias_on_open = false;
         }
         camera->cd().add_callback([&chunk_queue, &camera_on, &running](const Metavision::EventCD *begin,
                                                                        const Metavision::EventCD *end) {
@@ -335,7 +505,19 @@ void handle_command(char cmd,
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
+    BiasCliOptions bias_options;
+    bool show_help = false;
+    if (!parse_cli_options(argc, argv, bias_options, show_help)) {
+        if (show_help) {
+            return 0;
+        }
+        if (argc > 1) {
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
     std::atomic<bool> running{true};
     std::atomic<bool> camera_on{false};
     std::atomic<bool> recording_enabled{false};
@@ -478,6 +660,12 @@ int main() {
            "q(Quit)"
         << std::endl;
 
+    if (bias_options.has_bias_values() || bias_options.print_bias_on_open) {
+        handle_command('o', camera, biases, camera_on, recording_enabled, running, reset_requested,
+                       recording_reset_requested, output_mutex, output_dir, camera_width, camera_height, bias_primary,
+                       bias_secondary, chunk_queue, bias_options);
+    }
+
     while (running.load()) {
         cv::Mat frame_copy;
         {
@@ -494,17 +682,17 @@ int main() {
         if (key == 'q' || key == 'Q') {
             handle_command('q', camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           bias_primary, bias_secondary, chunk_queue);
+                           bias_primary, bias_secondary, chunk_queue, bias_options);
         } else if (key > 0) {
             handle_command(static_cast<char>(key), camera, biases, camera_on, recording_enabled, running,
                            reset_requested, recording_reset_requested, output_mutex, output_dir, camera_width,
-                           camera_height, bias_primary, bias_secondary, chunk_queue);
+                           camera_height, bias_primary, bias_secondary, chunk_queue, bias_options);
         }
 
         if (auto cmd = poll_console_command()) {
             handle_command(*cmd, camera, biases, camera_on, recording_enabled, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
-                           bias_primary, bias_secondary, chunk_queue);
+                           bias_primary, bias_secondary, chunk_queue, bias_options);
         }
     }
 

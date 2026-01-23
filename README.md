@@ -199,6 +199,39 @@ or you can deploy the OpenEB files in the system path (`/usr/local/lib`, `/usr/l
     in step 2. Similarly, you can configure the directory where the Python packages will be deployed using the
     `PYTHON3_SITE_PACKAGES` variable (`-DPYTHON3_SITE_PACKAGES=<PYTHON3_PACKAGES_INSTALL_DIR>`).
 
+### Running the EVS 2ms Logger sample
+
+The EVS 2ms Logger sample (`evs_2ms_logger`) is built as part of the standard compilation steps above. To run it:
+
+1. Build the project (see **Compilation** above).
+2. If you are running from the build folder, set up the runtime environment variables:
+
+   ```bash
+   source utils/scripts/setup_env.sh
+   ```
+
+3. From the build directory, launch the sample:
+
+   ```bash
+   ./standalone_samples/evs_2ms_logger/evs_2ms_logger
+   ```
+
+You can also pass CLI options to set biases before the camera starts or to print the current bias values:
+
+```bash
+./standalone_samples/evs_2ms_logger/evs_2ms_logger \
+  --bias-diff 120 \
+  --bias-diff-on 200 \
+  --bias-diff-off 80 \
+  --bias-fo 30 \
+  --bias-hpf 5
+
+./standalone_samples/evs_2ms_logger/evs_2ms_logger --print-bias
+```
+
+When the app launches, use the interactive commands to start the camera (`o`), stop it (`f`), and control logging. The bias
+CLI options apply immediately when the camera is opened.
+
   * you also need to update `LD_LIBRARY_PATH` and `HDF5_PLUGIN_PATH`
     (which you may add to your `~/.bashrc` to make it permanent):
 
