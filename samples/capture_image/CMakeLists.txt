@@ -15,6 +15,7 @@ target_link_libraries(${sample}
     PRIVATE
         MetavisionSDK::core
         MetavisionSDK::stream
+        MetavisionSDK::ui
         opencv_highgui
         opencv_imgproc
         opencv_imgcodecs

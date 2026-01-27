@@ -179,7 +179,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 ### Step 2: Build (Release)
 
 ```bash
-cmake --build build --config Release
+cmake --build build --config Release --target capture_image
 ```
 
 ### Step 3: Set runtime environment (plugins & DLLs)
