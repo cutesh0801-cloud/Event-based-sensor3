@@ -481,6 +481,10 @@ add_subdirectory(sdk)
 
 if (BUILD_SAMPLES)
     ################################
+    #            Samples          ##
+    ################################
+    add_subdirectory(samples)
+    ################################
     #      Standalone samples     ##
     ################################
     add_subdirectory(standalone_samples)

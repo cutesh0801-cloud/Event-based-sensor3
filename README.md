@@ -155,6 +155,113 @@ Make sure that you install a version of CUDA that is compatible with your GPUs b
 
 Note that, at the moment, we don't support [OpenCL](https://www.khronos.org/opencl/) and AMD GPUs.
 
+## Capture image sample (Windows / Visual Studio 2022)
+
+This section explains how to build and run the **capture_image** sample added in `samples/capture_image`, including
+how to use the GUI controls and where captured BMP files are stored.  
+아래 내용은 Windows + Visual Studio 2022 기준으로 **capture_image** 샘플을 빌드/실행하는 상세 절차입니다.
+
+### Required environment
+
+* Windows 10/11 (x64)
+* Visual Studio 2022 (with C++ Desktop Development workload)
+* CMake (3.20+ recommended)
+* Prophesee SDK (already provided in this repository)
+
+### Step 1: Configure (CMake)
+
+From the repository root (`OPENEB_SRC_DIR`), run:
+
+```bash
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+```
+
+### Step 2: Build (Release)
+
+```bash
+cmake --build build --config Release
+```
+
+### Step 3: Set runtime environment (plugins & DLLs)
+
+The sample needs access to the HAL plugins and SDK DLLs produced by the build.
+From the repository root, you can set the environment for the current shell:
+
+```bat
+set MV_HAL_PLUGIN_PATH=%CD%\\build\\lib\\metavision\\hal\\plugins
+set PATH=%CD%\\build\\bin\\Release;%PATH%
+```
+
+Alternatively, you can open a Developer Command Prompt and run the generated `setup_env.bat`
+from `build\\utils\\scripts` if you configured OpenEB to generate it.
+
+### Step 4: Run the sample
+
+```bash
+build\\bin\\Release\\capture_image.exe
+```
+
+### Where captured BMP images are stored
+
+Captured images are saved as **BMP** files under:
+
+```
+./captures/
+```
+
+Each file follows the naming pattern:
+
+```
+capture_YYYYMMDD_HHMMSS_mmm.bmp
+```
+
+The program prints the full path of each saved capture to the console.
+
+### How to use the GUI (Camera ON/OFF, bias controls, image capture)
+
+The sample opens two windows:
+
+1. **Capture image** (live visualization window)
+2. **Capture image controls** (sliders)
+
+Controls in the **Capture image controls** window:
+
+* **Camera** (0/1)  
+  * **0**: stop streaming and release the camera.  
+  * **1**: open the camera and start streaming events.
+* **bias_diff**  
+  Adjusts the global differential bias (controls overall event sensitivity).
+* **bias_diff_off**  
+  Adjusts sensitivity for OFF (negative polarity) events.
+* **bias_diff_on**  
+  Adjusts sensitivity for ON (positive polarity) events.
+* **bias_hpf**  
+  Controls the high-pass filter bias (affects temporal filtering and noise).
+* **bias_fo**  
+  Adjusts the front-end offset bias (affects baseline activity).
+* **Capture** (0/1)  
+  Set to **1** to save the currently displayed frame as a BMP. The control resets to **0** automatically after saving.
+
+If a bias is not supported by the connected camera, a warning is printed to the console and the control is ignored.
+
+---
+
+### (Korean) 실행 절차 요약
+
+1. **CMake 구성**  
+   `cmake -S . -B build -G "Visual Studio 17 2022" -A x64`
+2. **Release 빌드**  
+   `cmake --build build --config Release`
+3. **환경 변수 설정 (필수)**  
+   ```
+   set MV_HAL_PLUGIN_PATH=%CD%\\build\\lib\\metavision\\hal\\plugins
+   set PATH=%CD%\\build\\bin\\Release;%PATH%
+   ```
+4. **실행**  
+   `build\\bin\\Release\\capture_image.exe`
+
+캡처 이미지는 `./captures/` 폴더에 BMP 파일로 저장되며, 저장된 전체 경로가 콘솔에 출력됩니다.
+
 
 ### Compilation
 
