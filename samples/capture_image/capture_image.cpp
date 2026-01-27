@@ -320,7 +320,6 @@ void capture_image(AppState &app) {
 #if defined(_WIN32)
 struct WindowsRuntimePaths {
     std::wstring exe_dir;
-    std::wstring build_bin_dir;
     std::wstring plugin_dir;
 };
 
@@ -368,8 +367,6 @@ WindowsRuntimePaths setup_windows_runtime_paths() {
     if (paths.exe_dir.empty()) {
         return paths;
     }
-    paths.build_bin_dir = paths.exe_dir;
-
     std::filesystem::path plugin_dir = std::filesystem::path(paths.exe_dir) / L".." / L".." / L"lib" / L"metavision" /
                                        L"hal" / L"plugins";
     plugin_dir = plugin_dir.lexically_normal();
@@ -388,7 +385,6 @@ WindowsRuntimePaths setup_windows_runtime_paths() {
             set_default(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
             add_dir(paths.exe_dir.c_str());
             add_dir(paths.plugin_dir.c_str());
-            add_dir(paths.build_bin_dir.c_str());
             return paths;
         }
     }
@@ -404,7 +400,6 @@ void print_windows_runtime_diagnostics(const WindowsRuntimePaths &paths) {
     }
 
     std::wcout << L"[Windows DLL setup] exe_dir=" << paths.exe_dir << std::endl;
-    std::wcout << L"[Windows DLL setup] build_bin_dir=" << paths.build_bin_dir << std::endl;
     std::wcout << L"[Windows DLL setup] plugin_dir=" << paths.plugin_dir << std::endl;
     std::wstring env_value;
     DWORD env_len = GetEnvironmentVariableW(L"MV_HAL_PLUGIN_PATH", nullptr, 0);
@@ -425,8 +420,7 @@ void print_windows_runtime_diagnostics(const WindowsRuntimePaths &paths) {
     HMODULE module = GetModuleHandleW(module_name.c_str());
     bool loaded_for_diagnostics = false;
     if (!module) {
-        module = LoadLibraryExW(module_name.c_str(), nullptr,
-                                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+        module = LoadLibraryExW(module_name.c_str(), nullptr, LOAD_LIBRARY_SEARCH_USER_DIRS);
         loaded_for_diagnostics = (module != nullptr);
     }
     std::wstring module_path = get_module_path(module);

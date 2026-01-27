@@ -243,7 +243,6 @@ build\\bin\\Release\\capture_image.exe
 At startup, `capture_image.exe` prints:
 
 * `exe_dir` (resolved via `GetModuleFileNameW`).
-* `build_bin_dir` (same as `exe_dir`).
 * `plugin_dir` (computed as `..\..\lib\metavision\hal\plugins` relative to the executable).
 * `MV_HAL_PLUGIN_PATH` (forced to the build-tree plugin directory).
 * The resolved path for `hal_plugin_prophesee.dll` (best-effort).
@@ -325,7 +324,6 @@ If a bias is not supported by the connected camera, a warning is printed to the 
 프로그램 실행 시 콘솔에 다음 정보가 출력됩니다.
 
 * `exe_dir` (GetModuleFileNameW로 확인된 실행 파일 위치)
-* `build_bin_dir` (exe_dir과 동일)
 * `plugin_dir` (`..\\..\\lib\\metavision\\hal\\plugins`로 계산)
 * `MV_HAL_PLUGIN_PATH` (빌드 트리 경로로 강제 설정)
 * `hal_plugin_prophesee.dll`이 실제로 로드되는 전체 경로
@@ -334,6 +332,42 @@ If a bias is not supported by the connected camera, a warning is printed to the 
 환경 변수와 PATH 충돌을 제거해야 합니다.
 
 캡처 이미지는 `./captures/` 폴더에 BMP 파일로 저장되며, 저장된 전체 경로가 콘솔에 출력됩니다.
+
+#### (Korean) 코드 수정 후 실행 절차 상세
+
+아래 단계는 **코드 수정 후 빌드/실행까지의 전체 과정**을 정리한 것입니다.  
+Prophesee SDK가 시스템에 설치되어 있더라도, 빌드 트리의 DLL/플러그인만 사용하도록 구성되어 있습니다.
+
+1. **저장소 루트로 이동**
+   ```
+   cd <OPENEB_SRC_DIR>
+   ```
+2. **CMake 구성**
+   ```
+   cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+   ```
+3. **Release 빌드**
+   ```
+   cmake --build build --config Release --target capture_image
+   ```
+4. **런처로 실행 (권장)**
+   ```
+   run_capture_image.bat
+   ```
+   - 런처가 `MV_HAL_PLUGIN_PATH`와 `PATH`를 빌드 결과로 강제 설정합니다.
+   - 콘솔 출력에서 `C:\Program Files\Prophesee` 경로가 보이면 충돌이므로,
+     다른 터미널을 닫고 새 Developer Command Prompt에서 다시 실행하세요.
+5. **(대안) 직접 실행**
+   ```
+   build\\bin\\Release\\capture_image.exe
+   ```
+   - 프로그램 시작 시 **DLL 검색 경로가 자동으로 설정**되므로 더블클릭 실행도 가능합니다.
+   - 그래도 문제가 발생하면, 반드시 4번의 런처 실행을 우선 사용하세요.
+
+> **문제 해결 체크리스트**
+> - 콘솔 진단 로그에 `plugin_dir`가 `build\\lib\\metavision\\hal\\plugins`를 가리키는지 확인.
+> - `hal_plugin_prophesee.dll` 로드 경로가 `C:\Program Files\Prophesee`가 아닌지 확인.
+> - 문제가 지속되면, 시스템 설치 SDK 경로가 PATH에 섞여 있지 않은지 확인하세요.
 
 
 ### Compilation
