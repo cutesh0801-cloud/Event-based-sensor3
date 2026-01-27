@@ -185,12 +185,18 @@ cmake --build build --config Release --target capture_image
 ### Step 3: Set runtime environment (plugins & DLLs)
 
 The sample needs access to the HAL plugins and SDK DLLs produced by the build.
-From the repository root, you can set the environment for the current shell:
+From the repository root, set the environment for the **current terminal session**.
+If you have the Prophesee SDK installed under `C:\Program Files\Prophesee`, **open a fresh Developer Command Prompt**
+and run these commands in the same terminal before launching the executable so Windows does not pick up the
+system-installed plugins or DLLs.
 
 ```bat
 set MV_HAL_PLUGIN_PATH=%CD%\\build\\lib\\metavision\\hal\\plugins
 set PATH=%CD%\\build\\bin\\Release;%PATH%
 ```
+
+Make sure you run the `set` commands in the same terminal where you will execute `capture_image.exe`
+so the environment variables take effect for that process.
 
 Alternatively, you can open a Developer Command Prompt and run the generated `setup_env.bat`
 from `build\\utils\\scripts` if you configured OpenEB to generate it.
@@ -252,12 +258,14 @@ If a bias is not supported by the connected camera, a warning is printed to the 
    `cmake -S . -B build -G "Visual Studio 17 2022" -A x64`
 2. **Release 빌드**  
    `cmake --build build --config Release`
-3. **환경 변수 설정 (필수)**  
+3. **환경 변수 설정 (필수, 같은 터미널에서 실행)**  
    ```
    set MV_HAL_PLUGIN_PATH=%CD%\\build\\lib\\metavision\\hal\\plugins
    set PATH=%CD%\\build\\bin\\Release;%PATH%
    ```
-4. **실행**  
+   - Prophesee SDK가 `C:\Program Files\Prophesee`에 설치되어 있다면,
+     **새 Developer Command Prompt를 열고** 위 환경 변수부터 설정한 뒤 실행하세요.
+4. **실행 (같은 터미널에서)**  
    `build\\bin\\Release\\capture_image.exe`
 
 캡처 이미지는 `./captures/` 폴더에 BMP 파일로 저장되며, 저장된 전체 경로가 콘솔에 출력됩니다.

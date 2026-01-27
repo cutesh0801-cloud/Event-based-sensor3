@@ -12,6 +12,7 @@
 #include <atomic>
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -19,6 +20,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -312,9 +317,66 @@ void capture_image(AppState &app) {
     std::cout << "Captured image saved to: " << std::filesystem::absolute(output_path).string() << std::endl;
 }
 
+#if defined(_WIN32)
+std::wstring get_executable_directory() {
+    std::wstring buffer(MAX_PATH, L'\0');
+    while (true) {
+        DWORD size = static_cast<DWORD>(buffer.size());
+        DWORD length = GetModuleFileNameW(nullptr, buffer.data(), size);
+        if (length == 0) {
+            return L"";
+        }
+        if (length < size - 1) {
+            buffer.resize(length);
+            break;
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+    std::filesystem::path exe_path(buffer);
+    return exe_path.parent_path().wstring();
+}
+
+void setup_windows_runtime_paths() {
+    const std::wstring exe_dir = get_executable_directory();
+    if (exe_dir.empty()) {
+        return;
+    }
+
+    std::filesystem::path plugin_dir = std::filesystem::path(exe_dir) / L".." / L".." / L"lib" / L"metavision" /
+                                       L"hal" / L"plugins";
+    plugin_dir = plugin_dir.lexically_normal();
+
+    const char *current_plugin_path = std::getenv("MV_HAL_PLUGIN_PATH");
+    if (!current_plugin_path || std::string(current_plugin_path).empty()) {
+        _wputenv_s(L"MV_HAL_PLUGIN_PATH", plugin_dir.wstring().c_str());
+    }
+
+    HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+    if (kernel) {
+        using SetDefaultDllDirectoriesFn = BOOL(WINAPI *)(DWORD);
+        using AddDllDirectoryFn = DLL_DIRECTORY_COOKIE(WINAPI *)(PCWSTR);
+        auto set_default =
+            reinterpret_cast<SetDefaultDllDirectoriesFn>(GetProcAddress(kernel, "SetDefaultDllDirectories"));
+        auto add_dir = reinterpret_cast<AddDllDirectoryFn>(GetProcAddress(kernel, "AddDllDirectory"));
+        if (set_default && add_dir) {
+            set_default(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+            add_dir(exe_dir.c_str());
+            add_dir(plugin_dir.wstring().c_str());
+            return;
+        }
+    }
+
+    SetDllDirectoryW(exe_dir.c_str());
+}
+#endif
+
 } // namespace
 
 int main() {
+#if defined(_WIN32)
+    setup_windows_runtime_paths();
+#endif
+
     const auto available_sources = Metavision::Camera::list_online_sources();
     if (available_sources.empty()) {
         std::cerr << "No camera detected. Please connect a Prophesee camera and try again." << std::endl;
