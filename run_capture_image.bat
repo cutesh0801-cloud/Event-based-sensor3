@@ -9,7 +9,15 @@ set "PATH=%REPO_ROOT%\build\bin\Release;%REPO_ROOT%\build\lib;%PATH%"
 echo MV_HAL_PLUGIN_PATH=%MV_HAL_PLUGIN_PATH%
 echo.
 echo [Diagnostics] metavision_hal.dll
-where metavision_hal.dll 2>NUL
+for /f "delims=" %%F in ('where metavision_hal.dll 2^>NUL') do (
+  echo %%F
+  echo %%F | findstr /I /C:"\\Program Files\\Prophesee\\" >NUL
+  if not errorlevel 1 (
+    echo ERROR: metavision_hal.dll resolved from Program Files. Please use the build-tree DLLs.
+    popd
+    exit /b 1
+  )
+)
 echo.
 echo [Diagnostics] hal_plugin_prophesee.dll
 where hal_plugin_prophesee.dll 2>NUL

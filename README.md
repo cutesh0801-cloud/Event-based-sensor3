@@ -199,8 +199,8 @@ The script:
 * Changes directory to the repo root.
 * Overrides `MV_HAL_PLUGIN_PATH` to the build-tree plugin directory.
 * Prepends `build\bin\Release` and `build\lib` to `PATH`.
-* Prints diagnostic output (`where metavision_hal.dll`, `where hal_plugin_prophesee.dll`) and warns if anything
-  resolves under `C:\Program Files\Prophesee`.
+* Prints diagnostic output (`where metavision_hal.dll`, `where hal_plugin_prophesee.dll`) and **aborts** if
+  `metavision_hal.dll` resolves under `C:\Program Files\Prophesee`.
 * Launches `build\bin\Release\capture_image.exe`.
 
 > If the diagnostic output shows any DLLs under `C:\Program Files\Prophesee`, stop and resolve the PATH/plugin conflict
@@ -245,7 +245,8 @@ At startup, `capture_image.exe` prints:
 * `exe_dir` (resolved via `GetModuleFileNameW`).
 * `plugin_dir` (computed as `..\..\lib\metavision\hal\plugins` relative to the executable).
 * `MV_HAL_PLUGIN_PATH` (forced to the build-tree plugin directory).
-* The resolved path for `hal_plugin_prophesee.dll` (best-effort).
+* The resolved path for `hal_plugin_prophesee.dll` (best-effort). If it resolves from
+  `C:\Program Files\Prophesee`, the program exits immediately to avoid ABI mismatches.
 
 If any of these paths point to `C:\Program Files\Prophesee`, the system-installed SDK is still being loaded and must be
 removed from the environment or PATH. The goal is that all HAL plugins and SDK DLLs resolve from the build tree.
@@ -306,7 +307,8 @@ If a bias is not supported by the connected camera, a warning is printed to the 
    run_capture_image.bat
    ```
    - 런처는 저장소 루트로 이동한 뒤, `MV_HAL_PLUGIN_PATH`와 `PATH`를 빌드 결과로 강제 설정하고,
-     DLL/플러그인 경로를 진단 출력합니다.
+     DLL/플러그인 경로를 진단 출력합니다. `metavision_hal.dll`이 `C:\Program Files\Prophesee`로 잡히면
+     즉시 경고 후 종료합니다.
    - 출력에 `C:\Program Files\Prophesee` 경로가 보이면 충돌이므로 런처 사용/환경 정리를 먼저 진행하세요.
    - 이제 **exe 자체도** 실행 시 DLL 검색 경로를 빌드 트리로 강제 설정합니다(더블클릭 실행 가능).
 4. **(옵션) 수동 환경 변수 설정 (같은 터미널에서 실행)**  
