@@ -182,10 +182,30 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --target capture_image
 ```
 
-### Step 3: Set runtime environment (plugins & DLLs)
+### Step 3: Run via the provided launcher (recommended)
 
-The sample needs access to the HAL plugins and SDK DLLs produced by the build.
-From the repository root, set the environment for the **current terminal session**.
+The sample needs access to the HAL plugins and SDK DLLs produced by the build. To ensure Windows loads the **build-tree**
+DLLs/plugins (not the system-installed Prophesee SDK), use the provided launcher:
+
+```bat
+run_capture_image.bat
+```
+
+The script:
+
+* Changes directory to the repo root.
+* Overrides `MV_HAL_PLUGIN_PATH` to the build-tree plugin directory.
+* Prepends `build\bin\Release` to `PATH`.
+* Prints diagnostic output (`where metavision_hal.dll`, `where hal_plugin_prophesee.dll`) and warns if anything
+  resolves under `C:\Program Files\Prophesee`.
+* Launches `build\bin\Release\capture_image.exe`.
+
+> If the diagnostic output shows any DLLs under `C:\Program Files\Prophesee`, stop and resolve the PATH/plugin conflict
+> before continuing (e.g., close other terminals, ensure the launcher is used, and avoid system-wide Prophesee SDK paths).
+
+### Step 4: (Optional) Manual environment setup
+
+If you need to run the executable manually from a terminal, you can set the environment for the **current terminal session**.
 If you have the Prophesee SDK installed under `C:\Program Files\Prophesee`, **open a fresh Developer Command Prompt**
 and run these commands in the same terminal before launching the executable so Windows does not pick up the
 system-installed plugins or DLLs.
@@ -201,7 +221,15 @@ so the environment variables take effect for that process.
 Alternatively, you can open a Developer Command Prompt and run the generated `setup_env.bat`
 from `build\\utils\\scripts` if you configured OpenEB to generate it.
 
-### Step 4: Run the sample
+### Step 5: Run the sample
+
+Use the launcher to avoid ABI/version mismatches:
+
+```bat
+run_capture_image.bat
+```
+
+If you manually configured the environment in **Step 4**, you can run the executable directly:
 
 ```bash
 build\\bin\\Release\\capture_image.exe
@@ -258,14 +286,21 @@ If a bias is not supported by the connected camera, a warning is printed to the 
    `cmake -S . -B build -G "Visual Studio 17 2022" -A x64`
 2. **Release 빌드**  
    `cmake --build build --config Release`
-3. **환경 변수 설정 (필수, 같은 터미널에서 실행)**  
+3. **런처로 실행 (권장)**  
+   ```
+   run_capture_image.bat
+   ```
+   - 런처는 저장소 루트로 이동한 뒤, `MV_HAL_PLUGIN_PATH`와 `PATH`를 빌드 결과로 강제 설정하고,
+     DLL/플러그인 경로를 진단 출력합니다.
+   - 출력에 `C:\Program Files\Prophesee` 경로가 보이면 충돌이므로 런처 사용/환경 정리를 먼저 진행하세요.
+4. **(옵션) 수동 환경 변수 설정 (같은 터미널에서 실행)**  
    ```
    set MV_HAL_PLUGIN_PATH=%CD%\\build\\lib\\metavision\\hal\\plugins
    set PATH=%CD%\\build\\bin\\Release;%PATH%
    ```
    - Prophesee SDK가 `C:\Program Files\Prophesee`에 설치되어 있다면,
      **새 Developer Command Prompt를 열고** 위 환경 변수부터 설정한 뒤 실행하세요.
-4. **실행 (같은 터미널에서)**  
+5. **실행 (같은 터미널에서)**  
    `build\\bin\\Release\\capture_image.exe`
 
 캡처 이미지는 `./captures/` 폴더에 BMP 파일로 저장되며, 저장된 전체 경로가 콘솔에 출력됩니다.
