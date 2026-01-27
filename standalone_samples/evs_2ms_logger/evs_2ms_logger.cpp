@@ -58,6 +58,7 @@ struct BiasCliOptions {
     std::optional<int> bias_fo;
     std::optional<int> bias_hpf;
     bool print_bias_on_open = false;
+    bool verbose_logging = false;
 
     bool has_bias_values() const {
         return bias_diff || bias_diff_on || bias_diff_off || bias_fo || bias_hpf;
@@ -73,6 +74,7 @@ void print_usage(const char *app_name) {
               << "  --bias-fo <int>         Set bias_fo before starting the camera\n"
               << "  --bias-hpf <int>        Set bias_hpf before starting the camera\n"
               << "  --print-bias            Print current bias values when the camera is opened\n"
+              << "  --verbose               Print per-frame status logs (frame/t0/queue/recording)\n"
               << "  --help                  Show this help message\n";
 }
 
@@ -131,6 +133,8 @@ bool parse_cli_options(int argc, char **argv, BiasCliOptions &options, bool &sho
             }
         } else if (arg == "--print-bias") {
             options.print_bias_on_open = true;
+        } else if (arg == "--verbose") {
+            options.verbose_logging = true;
         } else {
             std::cerr << "Unknown option: " << arg << std::endl;
             return false;
@@ -462,6 +466,7 @@ void handle_command(char cmd,
                     Metavision::I_LL_Biases *&biases,
                     std::atomic<bool> &camera_on,
                     std::atomic<bool> &recording_enabled,
+                    std::atomic<bool> &verbose_logging,
                     std::atomic<bool> &running,
                     std::atomic<bool> &reset_requested,
                     std::atomic<bool> &recording_reset_requested,
@@ -586,6 +591,13 @@ void handle_command(char cmd,
         std::cout << "Exit requested." << std::endl;
         return;
     }
+    case 'v':
+    case 'V': {
+        bool next = !verbose_logging.load();
+        verbose_logging.store(next);
+        std::cout << "[INFO] Verbose logging " << (next ? "ON" : "OFF") << std::endl;
+        return;
+    }
     case 'b':
     case 'B': {
         if (!camera_biases_ready(camera_on, biases)) {
@@ -651,6 +663,7 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+    std::atomic<bool> verbose_logging{bias_options.verbose_logging};
 
     std::atomic<bool> running{true};
     std::atomic<bool> camera_on{false};
@@ -766,9 +779,11 @@ int main(int argc, char **argv) {
                             queue_size = chunk_queue.queue.size();
                         }
 
-                        std::cout << "Frame " << frame_index << " t0=" << *window_start << "us | queue="
-                                  << queue_size << " | recording=" << (window_recording ? "ON" : "OFF")
-                                  << std::endl;
+                        if (verbose_logging.load()) {
+                            std::cout << "Frame " << frame_index << " t0=" << *window_start << "us | queue="
+                                      << queue_size << " | recording=" << (window_recording ? "ON" : "OFF")
+                                      << std::endl;
+                        }
                     }
 
                     ++frame_index;
@@ -791,13 +806,13 @@ int main(int argc, char **argv) {
 
     cv::namedWindow(kWindowName, cv::WINDOW_NORMAL);
     std::cout
-        << "Commands: o(Camera ON), f(Camera OFF), s(Record START), e(Record END), "
+        << "Commands: o(Camera ON), f(Camera OFF), s(Record START), e(Record END), v(Verbose log ON/OFF), "
            "b(List biases), B(Verbose bias info), n(Select bias), +/-(Bias +/-), [ ](Step), p(Print selection), "
            "q(Quit)"
         << std::endl;
 
     if (bias_options.has_bias_values() || bias_options.print_bias_on_open) {
-        handle_command('o', camera, biases, camera_on, recording_enabled, running, reset_requested,
+        handle_command('o', camera, biases, camera_on, recording_enabled, verbose_logging, running, reset_requested,
                        recording_reset_requested, output_mutex, output_dir, camera_width, camera_height, selected_bias,
                        bias_step_index, step_options, chunk_queue, bias_options);
     }
@@ -816,17 +831,17 @@ int main(int argc, char **argv) {
 
         int key = cv::waitKey(kDisplayDelayMs);
         if (key == 'q' || key == 'Q') {
-            handle_command('q', camera, biases, camera_on, recording_enabled, running, reset_requested,
+            handle_command('q', camera, biases, camera_on, recording_enabled, verbose_logging, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
                            selected_bias, bias_step_index, step_options, chunk_queue, bias_options);
         } else if (key > 0) {
-            handle_command(static_cast<char>(key), camera, biases, camera_on, recording_enabled, running,
+            handle_command(static_cast<char>(key), camera, biases, camera_on, recording_enabled, verbose_logging, running,
                            reset_requested, recording_reset_requested, output_mutex, output_dir, camera_width,
                            camera_height, selected_bias, bias_step_index, step_options, chunk_queue, bias_options);
         }
 
         if (auto cmd = poll_console_command()) {
-            handle_command(*cmd, camera, biases, camera_on, recording_enabled, running, reset_requested,
+            handle_command(*cmd, camera, biases, camera_on, recording_enabled, verbose_logging, running, reset_requested,
                            recording_reset_requested, output_mutex, output_dir, camera_width, camera_height,
                            selected_bias, bias_step_index, step_options, chunk_queue, bias_options);
         }

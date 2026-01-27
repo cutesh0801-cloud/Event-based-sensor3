@@ -204,17 +204,25 @@ or you can deploy the OpenEB files in the system path (`/usr/local/lib`, `/usr/l
 The EVS 2ms Logger sample (`evs_2ms_logger`) is built as part of the standard compilation steps above. To run it:
 
 1. Build the project (see **Compilation** above).
-2. If you are running from the build folder, set up the runtime environment variables:
+2. Connect your Prophesee-compatible camera and confirm the plugin/udev setup is complete (see the camera plugin notes
+   above).
+3. If you are running from the build folder, set up the runtime environment variables:
 
    ```bash
    source utils/scripts/setup_env.sh
    ```
 
-3. From the build directory, launch the sample:
+4. From the build directory, launch the sample:
 
    ```bash
    ./standalone_samples/evs_2ms_logger/evs_2ms_logger
    ```
+
+5. In the app window, press `o` to turn the camera on, `s` to start recording, and `e` to stop. Press `f` to turn the
+   camera off and `q` to exit.
+
+6. The per-frame status log (frame/t0/queue/recording) is **disabled by default**. Toggle it on/off with the `v` key, or
+   start the app with `--verbose` to enable it immediately.
 
 You can also pass CLI options to set biases before the camera starts or to print the current bias values:
 
@@ -229,9 +237,9 @@ You can also pass CLI options to set biases before the camera starts or to print
 ./standalone_samples/evs_2ms_logger/evs_2ms_logger --print-bias
 ```
 
-When the app launches, use the interactive commands to start the camera (`o`), stop it (`f`), and control logging. The bias
-CLI options apply immediately when the camera is opened. Bias control is only available after the camera is ON and requires
-an I_LL_Biases facility; unsupported devices will print:
+When the app launches, use the interactive commands to start the camera (`o`), stop it (`f`), toggle verbose logging
+(`v`), and control logging. The bias CLI options apply immediately when the camera is opened. Bias control is only
+available after the camera is ON and requires an I_LL_Biases facility; unsupported devices will print:
 `이 디바이스는 bias 조절 미지원 (I_LL_Biases facility unavailable).`
 
 Interactive bias commands:
@@ -241,6 +249,9 @@ Interactive bias commands:
 - `+`/`-`: increase/decrease the selected bias by the current step.
 - `]`/`[`: increase/decrease the step size (1 -> 5 -> 10 -> 20 -> 50).
 - `p`: print the selected bias name/value/step.
+Other commands:
+- `v`: toggle verbose per-frame status logging on/off.
+- `q`: quit the application.
 
   * you also need to update `LD_LIBRARY_PATH` and `HDF5_PLUGIN_PATH`
     (which you may add to your `~/.bashrc` to make it permanent):
