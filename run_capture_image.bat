@@ -4,7 +4,7 @@ pushd "%~dp0"
 
 set "REPO_ROOT=%CD%"
 set "MV_HAL_PLUGIN_PATH=%REPO_ROOT%\build\lib\metavision\hal\plugins"
-set "PATH=%REPO_ROOT%\build\bin\Release;%PATH%"
+set "PATH=%REPO_ROOT%\build\bin\Release;%REPO_ROOT%\build\lib;%PATH%"
 
 echo MV_HAL_PLUGIN_PATH=%MV_HAL_PLUGIN_PATH%
 echo.

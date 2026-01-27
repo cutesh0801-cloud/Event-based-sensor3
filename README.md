@@ -184,8 +184,11 @@ cmake --build build --config Release --target capture_image
 
 ### Step 3: Run via the provided launcher (recommended)
 
-The sample needs access to the HAL plugins and SDK DLLs produced by the build. To ensure Windows loads the **build-tree**
-DLLs/plugins (not the system-installed Prophesee SDK), use the provided launcher:
+The sample needs access to the HAL plugins and SDK DLLs produced by the build. The **application now sets Windows DLL
+search paths at startup**, so even double-clicking `capture_image.exe` should prefer the build-tree DLLs and plugins.
+However, the launcher remains the **recommended** option to guarantee a clean environment and provide extra diagnostics.
+
+To ensure Windows loads the **build-tree** DLLs/plugins (not the system-installed Prophesee SDK), use the provided launcher:
 
 ```bat
 run_capture_image.bat
@@ -195,7 +198,7 @@ The script:
 
 * Changes directory to the repo root.
 * Overrides `MV_HAL_PLUGIN_PATH` to the build-tree plugin directory.
-* Prepends `build\bin\Release` to `PATH`.
+* Prepends `build\bin\Release` and `build\lib` to `PATH`.
 * Prints diagnostic output (`where metavision_hal.dll`, `where hal_plugin_prophesee.dll`) and warns if anything
   resolves under `C:\Program Files\Prophesee`.
 * Launches `build\bin\Release\capture_image.exe`.
@@ -234,6 +237,19 @@ If you manually configured the environment in **Step 4**, you can run the execut
 ```bash
 build\\bin\\Release\\capture_image.exe
 ```
+
+### Runtime diagnostics (important for DLL/plugin conflicts)
+
+At startup, `capture_image.exe` prints:
+
+* `exe_dir` (resolved via `GetModuleFileNameW`).
+* `build_bin_dir` (same as `exe_dir`).
+* `plugin_dir` (computed as `..\..\lib\metavision\hal\plugins` relative to the executable).
+* `MV_HAL_PLUGIN_PATH` (forced to the build-tree plugin directory).
+* The resolved path for `hal_plugin_prophesee.dll` (best-effort).
+
+If any of these paths point to `C:\Program Files\Prophesee`, the system-installed SDK is still being loaded and must be
+removed from the environment or PATH. The goal is that all HAL plugins and SDK DLLs resolve from the build tree.
 
 ### Where captured BMP images are stored
 
@@ -293,6 +309,7 @@ If a bias is not supported by the connected camera, a warning is printed to the 
    - 런처는 저장소 루트로 이동한 뒤, `MV_HAL_PLUGIN_PATH`와 `PATH`를 빌드 결과로 강제 설정하고,
      DLL/플러그인 경로를 진단 출력합니다.
    - 출력에 `C:\Program Files\Prophesee` 경로가 보이면 충돌이므로 런처 사용/환경 정리를 먼저 진행하세요.
+   - 이제 **exe 자체도** 실행 시 DLL 검색 경로를 빌드 트리로 강제 설정합니다(더블클릭 실행 가능).
 4. **(옵션) 수동 환경 변수 설정 (같은 터미널에서 실행)**  
    ```
    set MV_HAL_PLUGIN_PATH=%CD%\\build\\lib\\metavision\\hal\\plugins
@@ -302,6 +319,19 @@ If a bias is not supported by the connected camera, a warning is printed to the 
      **새 Developer Command Prompt를 열고** 위 환경 변수부터 설정한 뒤 실행하세요.
 5. **실행 (같은 터미널에서)**  
    `build\\bin\\Release\\capture_image.exe`
+
+#### (Korean) 실행 시 출력되는 DLL/플러그인 진단
+
+프로그램 실행 시 콘솔에 다음 정보가 출력됩니다.
+
+* `exe_dir` (GetModuleFileNameW로 확인된 실행 파일 위치)
+* `build_bin_dir` (exe_dir과 동일)
+* `plugin_dir` (`..\\..\\lib\\metavision\\hal\\plugins`로 계산)
+* `MV_HAL_PLUGIN_PATH` (빌드 트리 경로로 강제 설정)
+* `hal_plugin_prophesee.dll`이 실제로 로드되는 전체 경로
+
+출력 경로에 `C:\Program Files\Prophesee`가 포함되면 시스템 설치 SDK를 사용하고 있는 것이므로,
+환경 변수와 PATH 충돌을 제거해야 합니다.
 
 캡처 이미지는 `./captures/` 폴더에 BMP 파일로 저장되며, 저장된 전체 경로가 콘솔에 출력됩니다.
 

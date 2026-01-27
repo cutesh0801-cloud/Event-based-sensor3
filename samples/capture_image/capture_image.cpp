@@ -318,6 +318,12 @@ void capture_image(AppState &app) {
 }
 
 #if defined(_WIN32)
+struct WindowsRuntimePaths {
+    std::wstring exe_dir;
+    std::wstring build_bin_dir;
+    std::wstring plugin_dir;
+};
+
 std::wstring get_executable_directory() {
     std::wstring buffer(MAX_PATH, L'\0');
     while (true) {
@@ -336,20 +342,40 @@ std::wstring get_executable_directory() {
     return exe_path.parent_path().wstring();
 }
 
-void setup_windows_runtime_paths() {
-    const std::wstring exe_dir = get_executable_directory();
-    if (exe_dir.empty()) {
-        return;
+std::wstring get_module_path(HMODULE module) {
+    if (!module) {
+        return L"";
     }
+    std::wstring buffer(MAX_PATH, L'\0');
+    while (true) {
+        DWORD size = static_cast<DWORD>(buffer.size());
+        DWORD length = GetModuleFileNameW(module, buffer.data(), size);
+        if (length == 0) {
+            return L"";
+        }
+        if (length < size - 1) {
+            buffer.resize(length);
+            break;
+        }
+        buffer.resize(buffer.size() * 2);
+    }
+    return buffer;
+}
 
-    std::filesystem::path plugin_dir = std::filesystem::path(exe_dir) / L".." / L".." / L"lib" / L"metavision" /
+WindowsRuntimePaths setup_windows_runtime_paths() {
+    WindowsRuntimePaths paths;
+    paths.exe_dir = get_executable_directory();
+    if (paths.exe_dir.empty()) {
+        return paths;
+    }
+    paths.build_bin_dir = paths.exe_dir;
+
+    std::filesystem::path plugin_dir = std::filesystem::path(paths.exe_dir) / L".." / L".." / L"lib" / L"metavision" /
                                        L"hal" / L"plugins";
     plugin_dir = plugin_dir.lexically_normal();
+    paths.plugin_dir = plugin_dir.wstring();
 
-    const char *current_plugin_path = std::getenv("MV_HAL_PLUGIN_PATH");
-    if (!current_plugin_path || std::string(current_plugin_path).empty()) {
-        _wputenv_s(L"MV_HAL_PLUGIN_PATH", plugin_dir.wstring().c_str());
-    }
+    SetEnvironmentVariableW(L"MV_HAL_PLUGIN_PATH", paths.plugin_dir.c_str());
 
     HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
     if (kernel) {
@@ -360,13 +386,59 @@ void setup_windows_runtime_paths() {
         auto add_dir = reinterpret_cast<AddDllDirectoryFn>(GetProcAddress(kernel, "AddDllDirectory"));
         if (set_default && add_dir) {
             set_default(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
-            add_dir(exe_dir.c_str());
-            add_dir(plugin_dir.wstring().c_str());
-            return;
+            add_dir(paths.exe_dir.c_str());
+            add_dir(paths.plugin_dir.c_str());
+            add_dir(paths.build_bin_dir.c_str());
+            return paths;
         }
     }
 
-    SetDllDirectoryW(exe_dir.c_str());
+    SetDllDirectoryW(paths.exe_dir.c_str());
+    return paths;
+}
+
+void print_windows_runtime_diagnostics(const WindowsRuntimePaths &paths) {
+    if (paths.exe_dir.empty()) {
+        std::cout << "[Windows DLL setup] Failed to resolve executable directory." << std::endl;
+        return;
+    }
+
+    std::wcout << L"[Windows DLL setup] exe_dir=" << paths.exe_dir << std::endl;
+    std::wcout << L"[Windows DLL setup] build_bin_dir=" << paths.build_bin_dir << std::endl;
+    std::wcout << L"[Windows DLL setup] plugin_dir=" << paths.plugin_dir << std::endl;
+    std::wstring env_value;
+    DWORD env_len = GetEnvironmentVariableW(L"MV_HAL_PLUGIN_PATH", nullptr, 0);
+    if (env_len > 0) {
+        env_value.resize(env_len);
+        GetEnvironmentVariableW(L"MV_HAL_PLUGIN_PATH", env_value.data(), env_len);
+        if (!env_value.empty() && env_value.back() == L'\0') {
+            env_value.pop_back();
+        }
+    }
+    if (env_value.empty()) {
+        std::wcout << L"[Windows DLL setup] MV_HAL_PLUGIN_PATH=(not set)" << std::endl;
+    } else {
+        std::wcout << L"[Windows DLL setup] MV_HAL_PLUGIN_PATH=" << env_value << std::endl;
+    }
+
+    const std::wstring module_name = L"hal_plugin_prophesee.dll";
+    HMODULE module = GetModuleHandleW(module_name.c_str());
+    bool loaded_for_diagnostics = false;
+    if (!module) {
+        module = LoadLibraryExW(module_name.c_str(), nullptr,
+                                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+        loaded_for_diagnostics = (module != nullptr);
+    }
+    std::wstring module_path = get_module_path(module);
+    if (!module_path.empty()) {
+        std::wcout << L"[Windows DLL setup] " << module_name << L" resolved to: " << module_path << std::endl;
+    } else {
+        std::wcout << L"[Windows DLL setup] " << module_name << L" not loaded yet or failed to resolve."
+                   << std::endl;
+    }
+    if (loaded_for_diagnostics && module) {
+        FreeLibrary(module);
+    }
 }
 #endif
 
@@ -374,7 +446,8 @@ void setup_windows_runtime_paths() {
 
 int main() {
 #if defined(_WIN32)
-    setup_windows_runtime_paths();
+    WindowsRuntimePaths runtime_paths = setup_windows_runtime_paths();
+    print_windows_runtime_diagnostics(runtime_paths);
 #endif
 
     const auto available_sources = Metavision::Camera::list_online_sources();
